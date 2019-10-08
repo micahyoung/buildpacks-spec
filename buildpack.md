@@ -110,6 +110,9 @@ Executable: `/bin/build <layers[EIC]> <platform[AR]> <plan[E]>`, Working Dir: `<
 | `<layers>/<layer>/profile.d/`  | Scripts sourced by shell before launch
 | `<layers>/<layer>/include/`    | C/C++ headers for subsequent buildpacks
 | `<layers>/<layer>/pkgconfig/`  | Search path for pkg-config for subsequent buildpacks
+| `<layers>/<layer>/reg/`        | [‡](README.md#windows-only)Windows Registry modifications for launch and/or subsequent buildpacks
+| `<layers>/<layer>/reg.launch/` | [‡](README.md#windows-only)Windows Registry modifications for launch (before `env`)
+| `<layers>/<layer>/reg.build/`  | [‡](README.md#windows-only)Windows Registry modifications for subsequent buildpacks (before `env`)
 | `<layers>/<layer>/env/`        | Env vars for launch and/or subsequent buildpacks
 | `<layers>/<layer>/env.launch/` | Env vars for launch (after `env`, before `profile.d`)
 | `<layers>/<layer>/env.build/`  | Env vars for subsequent buildpacks (after `env`)
@@ -140,6 +143,9 @@ Executable: `/bin/develop <layers[EC]> <platform[AR]> <plan[E]>`, Working Dir: `
 | `<layers>/<layer>/profile.d/`  | Scripts sourced by shell before launch
 | `<layers>/<layer>/include/`    | C/C++ headers for subsequent buildpacks
 | `<layers>/<layer>/pkgconfig/`  | Search path for pkg-config for subsequent buildpacks
+| `<layers>/<layer>/reg/`        | [‡](README.md#windows-only)Windows Registry modifications for launch and/or subsequent buildpacks
+| `<layers>/<layer>/reg.launch/` | [‡](README.md#windows-only)Windows Registry modifications for launch (before `env`)
+| `<layers>/<layer>/reg.build/`  | [‡](README.md#windows-only)Windows Registry modifications for subsequent buildpacks (before `env`)
 | `<layers>/<layer>/env/`        | Env vars for launch and/or subsequent buildpacks
 | `<layers>/<layer>/env.launch/` | Env vars for launch (after `env`, before `profile.d`)
 | `<layers>/<layer>/env.build/`  | Env vars for subsequent buildpacks (after `env`)
@@ -203,8 +209,9 @@ The lifecycle MUST consider layers that are marked `launch = false` and `build =
 
 | Output                 | Description
 |------------------------|----------------------------------------------
-| `<app>/.profile`       | [†](README.md#linux-only) Bash-formatted script sourced by shell before launch
-| `<app>/.profile.bat`   | [‡](README.md#windows-only) BAT-formatted script sourced by shell before launch
+| `<app>/.profile`       | [†](README.md#linux-only)Bash-formatted script sourced by shell before launch
+| `<app>/.profile.bat`   | [‡](README.md#windows-only)BAT-formatted script sourced by shell before launch
+| `<app>/.registry.reg`  | [‡](README.md#windows-only)Windows Registry modifications (import before `.profile.bat`)
 
 ## Phase #1: Detection
 
@@ -582,16 +589,18 @@ To choose an execution strategy,
 
 Given the start command and execution strategy,
 
-1. The lifecycle MUST set all buildpack-provided launch environment variables as described in the [Environment](#environment) section.
+1. ‡The lifecycle MUST import all buildpack-provided launch Windows Registry modification files as described in the [Windows Registry Modifications](#windows-registry-modifications) section.
 
-2. If using an execution strategy involving a shell, the lifecycle MUST use a single shell process to
+2. The lifecycle MUST set all buildpack-provided launch environment variables as described in the [Environment](#environment) section.
+
+3. If using an execution strategy involving a shell, the lifecycle MUST use a single shell process to
    1. source each file in each `<layers>/<layer>/profile.d` directory,
       1. Firstly, in order of `/bin/build` execution used to construct the OCI image.
       2. Secondly, in alphabetically ascending order by layer directory name.
       3. Thirdly, in alphabetically ascending order by file name.
    2. source [†](README.md#linux-only)`<app>/.profile` or [‡](README.md#windows-only)`<app>/.profile.bat` if it is present.
 
-3. The lifecycle MUST invoke the start command with the decided execution strategy.
+4. The lifecycle MUST invoke the start command with the decided execution strategy.
 
 [†](README.md#linux-only)When executing a process using any execution strategy, the lifecycle SHOULD replace the lifecycle process in memory without forking it.
 
@@ -743,24 +752,26 @@ It MUST NOT be used for environment variables that are not defined in this speci
 
 ### Provided by the Buildpacks
 
+#### Environment Variables
+
 During the build phase, buildpacks MAY write environment variable files to `<layers>/<layer>/env/`,  `<layers>/<layer>/env.build/`, and `<layers>/<layer>/env.launch/` directories.
 
 For each `<layers>/<layer>/` designated as a build layer, for each file written to `<layers>/<layer>/env/` or `<layers>/<layer>/env.build/` by `/bin/build`, the lifecycle MUST modify an environment variable in subsequent executions of `/bin/build` according to the modification rules below.
 
 For each file written to `<layers>/<layer>/env.launch/` by `/bin/build`, the lifecycle MUST modify an environment variable when the OCI image is launched according to the modification rules below.
 
-#### Environment Variable Modification Rules
+##### Environment Variable Modification Rules
 
 The lifecycle MUST consider the name of the environment variable to be the name of the file up to the first period (`.`) or to the end of the name if no periods are present.
 In all cases, file contents MUST NOT be evaluated by a shell or otherwise modified before inclusion in environment variable values.
 
-##### Delimiter
+###### Delimiter
 
 If the environment variable file name ends in `.delim`, then the file contents MUST be used to delimit any concatenation within the same layer involving that environment variable.
 This delimiter MUST override the delimiters below.
 If multiple operations apply to the same environment variable, all operations for a given layer containing environment variable files MUST be applied before subsequent layers are considered.
 
-##### Prepend
+###### Prepend
 
 If the environment variable file name has no period-delimited suffix, then the value of the environment variable MUST be a concatenation of the file contents and the contents of other files representing that environment variable delimited by the OS path list separator.
 If the environment variable file name ends in `.prepend`, then the value of the environment variable MUST be a concatenation of the file contents and the contents of other files representing that environment variable.
@@ -769,7 +780,7 @@ In either case, within that environment variable value,
 - Environment variable file contents originating from the same buildpack MUST be sorted alphabetically descending by associated layer name.
 - Environment variable file contents originating in the same layer MUST be sorted such that file contents in `<layers>/<layer>/env.build/` or `<layers>/<layer>/env.launch/` precede file contents in `<layers>/<layer>/env/`.
 
-##### Append
+###### Append
 
 If the environment variable file name ends in `.append`, then the value of the environment variable MUST be a concatenation of the file contents and the contents of other files representing that environment variable.
 Within that environment variable value,
@@ -777,7 +788,7 @@ Within that environment variable value,
 - Environment variable file contents originating from the same buildpack MUST be sorted alphabetically ascending by associated layer name.
 - Environment variable file contents originating in the same layer MUST be sorted such that file contents in `<layers>/<layer>/env/` precede file contents in `<layers>/<layer>/env.build/` or `<layers>/<layer>/env.launch/`.
 
-##### Override
+###### Override
 
 If the environment variable file name ends in `.override`, then the value of the environment variable MUST be the file contents.
 For that environment variable value,
@@ -785,13 +796,41 @@ For that environment variable value,
 - For environment variable file contents originating from the same buildpack, file contents that are later (when sorted alphabetically ascending by associated layer name) MUST override file contents that are earlier.
 - Environment variable file contents originating in the same layer MUST be sorted such that file contents in `<layers>/<layer>/env.build/` or `<layers>/<layer>/env.launch/` override file contents in `<layers>/<layer>/env/`.
 
-##### Default
+###### Default
 
 If the environment variable file name ends in `.default`, then the value of the environment variable MUST only be the file contents if the environment variable is empty.
 For that environment variable value,
 - Earlier buildpacks' environment default variable file contents MUST override later buildpacks' environment variable file contents.
 - For default environment variable file contents originating from the same buildpack, file contents that are earlier (when sorted alphabetically ascending by associated layer name) MUST override file contents that are later.
 - Default environment variable file contents originating in the same layer MUST be sorted such that file contents in `<layers>/<layer>/env/` override file contents in  `<layers>/<layer>/env.build/` or `<layers>/<layer>/env.launch/`.
+
+#### ‡Windows Registry Modifications
+
+During the build phase, buildpacks MAY write one or more files with a file name ending in `.reg` to `<layers>/<layer>/reg/`, `<layers>/<layer>/reg.build/`, and `<layers>/<layer>/reg.launch/` directories.
+
+For each `<layers>/<layer>/` designated as a build layer, for each `.reg` file written to `<layers>/<layer>/reg/` or `<layers>/<layer>/reg.build/`, the lifecycle MUST apply each registry modification to the build phase container's Windows Registry.
+
+For each `<layers>/<layer>/` designated as a launch layer, for each `.reg` file written to `<layers>/<layer>/reg/` or `<layers>/<layer>/reg.launch/`, the lifecycle MUST apply each registry modification to the launch phase container's Windows Registry.
+
+For build and launch phases, the file import order MUST be:
+   1. within the `<layers>/<layer>/reg` directory,
+      1. import each file with a filename ending in `.reg`,
+         1. Firstly, in order of `/bin/build` execution used to construct the OCI image.
+         2. Secondly, in alphabetically ascending order by layer directory name.
+         3. Thirdly, in alphabetically ascending order by file name.
+   2. for the build phase only,
+     1. within the `<layers>/<layer>/reg.build` directory, import files in the same order as `<layers>/<layer>/reg`
+   3. for the launch phase only,
+     1. within the `<layers>/<layer>/reg.launch` directory, import files in the same order as `<layers>/<layer>/reg`
+     2. import `<app>/.registry.reg` if it is present.
+
+Each `.reg` file MUST be a valid [Windows Registry Entry](https://support.microsoft.com/en-us/help/310516/how-to-add-modify-or-delete-registry-subkeys-and-values-by-using-a-reg).
+
+The lifecycle MUST import each `.reg` file with equivalent registry change to running `reg.exe import <filename>`.
+
+The lifecycle MUST fail the build when a `.reg` file is invalid or fails to apply completely.
+
+The lifecycle MAY may use [Windows Registry Hive](https://support.microsoft.com/en-us/help/256986/windows-registry-information-for-advanced-users) delta files located within OCI layer (ex: `Hives/System_Delta`) for `HKEY_LOCAL_MACHINE` registry changes on platforms that support it.
 
 ## Security Considerations
 
